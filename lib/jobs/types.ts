@@ -20,9 +20,9 @@ export interface IngestJobPayload {
 export type JobPayload = IngestJobPayload;
 
 /**
- * Minimal in-memory shape for a job document used by the queue runner.
- * Mongoose-backed `Job` model lands in Phase 2; this interface keeps the
- * runner typecheckable in the meantime.
+ * In-memory mirror of the persisted Job doc passed to executors. Read-only
+ * from the executor's perspective; state mutations flow through context
+ * helpers (`updateProgress`, `setResult`) so persistence stays in sync.
  */
 export interface JobLike {
   id: string;
@@ -32,18 +32,17 @@ export interface JobLike {
   payload: JobPayload;
   userId: string;
   itemId?: string;
-  error?: string;
   startedAt?: Date;
-  finishedAt?: Date;
 }
 
 export interface JobExecutorContext {
   job: JobLike;
-  /** Updates the job's progress (0–100) and any partial fields. */
-  updateProgress: (
-    progress: number,
-    partial?: Partial<JobLike>,
-  ) => Promise<void>;
+  /** Reports progress (0–100). Throttled to ~1 Hz writes; terminal 100 is
+   * written by the runner on success — do not call with 100 directly. */
+  updateProgress: (progress: number) => Promise<void>;
+  /** Stores a result payload that the runner persists on success. May be
+   * called multiple times; the last value wins. */
+  setResult: (result: Record<string, unknown>) => void;
 }
 
 export type JobExecutor = (ctx: JobExecutorContext) => Promise<void>;
