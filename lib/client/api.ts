@@ -13,6 +13,7 @@
 import type {
   IngestRequestBody,
   IngestResponse,
+  ItemDetailResponse,
   ItemListResponse,
   JobStatusResponse,
 } from "@/types/api";
@@ -107,6 +108,19 @@ export async function getItems(): Promise<ItemListResponse> {
     return { items: [...fakeItemList.items] };
   }
   return fetcher<ItemListResponse>("/api/items");
+}
+
+export async function getItemDetail(
+  itemId: string,
+): Promise<ItemDetailResponse> {
+  if (fakeDataEnabled()) {
+    const { fakeItemDetailFor } = await loadMocks();
+    // fakeItemDetailFor throws ApiError(404) for unknown ids.
+    return fakeItemDetailFor(itemId);
+  }
+  return fetcher<ItemDetailResponse>(
+    `/api/items/${encodeURIComponent(itemId)}`,
+  );
 }
 
 export async function getJob(jobId: string): Promise<JobStatusResponse> {
