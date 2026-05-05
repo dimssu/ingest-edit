@@ -1,4 +1,5 @@
 import mongoose, { type Mongoose } from "mongoose";
+import { User } from "@/lib/db/models/User";
 import { env, requireEnv } from "@/lib/server/env";
 import { logger } from "@/lib/server/logger";
 
@@ -8,7 +9,6 @@ interface MongooseCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __mongooseCache: MongooseCache | undefined;
 }
 
@@ -22,6 +22,11 @@ if (!globalThis.__mongooseCache) {
 /**
  * Returns a connected Mongoose instance. Caches on `globalThis` so HMR and
  * repeated route handler invocations reuse the same connection.
+ *
+ * On the first successful connection within a process, seeds the single
+ * user doc keyed by `APP_USER_ID`. The seed runs best-effort: it is
+ * caught and logged so a transient seed failure never blocks the
+ * connection from being returned.
  */
 export async function connectDB(): Promise<Mongoose> {
   requireEnv("MONGODB_URI", "MONGODB_DB_NAME");
@@ -37,8 +42,20 @@ export async function connectDB(): Promise<Mongoose> {
         dbName,
         bufferCommands: false,
       })
-      .then((m) => {
+      .then(async (m) => {
         logger.info({ dbName }, "MongoDB connected");
+        try {
+          await User.ensureSingleUser(env.APP_USER_ID);
+          logger.info(
+            { userId: env.APP_USER_ID },
+            "Single-user doc ensured",
+          );
+        } catch (err: unknown) {
+          logger.error(
+            { err, userId: env.APP_USER_ID },
+            "Failed to ensure single-user doc; continuing",
+          );
+        }
         return m;
       })
       .catch((err: unknown) => {
