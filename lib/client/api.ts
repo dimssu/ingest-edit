@@ -152,3 +152,46 @@ export async function postIngest(
   });
   return parseOrThrow<IngestResponse>(res);
 }
+
+// ---- /api/render (stubbed; real executor lands in Phase 7) ---------------
+
+export interface RenderRequest {
+  itemId: string;
+  baseVersionId: string;
+  clips: Array<{
+    sourceVersionId: string;
+    startMs: number;
+    endMs: number;
+  }>;
+}
+
+export interface RenderResponse {
+  jobId: string;
+  state: "queued";
+}
+
+/**
+ * Submits an edit spec for rendering. The endpoint currently returns 501
+ * NOT_IMPLEMENTED — the editor wiring exists end-to-end so a reviewer can
+ * inspect the request payload and confirm the spec serializes correctly.
+ *
+ * In fake-data mode we synthesize a queued response so the UI animates
+ * just like it will once the real executor is in.
+ */
+export async function postRender(req: RenderRequest): Promise<RenderResponse> {
+  if (fakeDataEnabled()) {
+    return {
+      jobId: `job_demo_render_${Math.random().toString(36).slice(2, 8)}`,
+      state: "queued",
+    };
+  }
+  const res = await fetch("/api/render", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+  return parseOrThrow<RenderResponse>(res);
+}
