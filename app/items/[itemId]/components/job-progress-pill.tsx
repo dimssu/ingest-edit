@@ -51,13 +51,8 @@ export function JobProgressPill({
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const state: JobStatusResponse["state"] = data?.state ?? "queued";
-  // Auto-detect progress scale: real executors emit 0–100, but the
-  // current fake-data mocks emit 0–1. Treat anything ≤ 1 as a fraction.
-  const rawProgress = data?.progress ?? 0;
-  const percent = Math.max(
-    0,
-    Math.min(100, Math.round(rawProgress <= 1 ? rawProgress * 100 : rawProgress)),
-  );
+  // `progress` is on a 0–100 scale (set by both real executors and mocks).
+  const percent = Math.max(0, Math.min(100, Math.round(data?.progress ?? 0)));
   const errorMessage =
     state === "failed"
       ? (data?.error?.message ?? "Job failed.")

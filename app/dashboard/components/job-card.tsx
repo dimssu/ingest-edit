@@ -75,8 +75,8 @@ export function JobCard({ job }: JobCardProps) {
   }, [data, job.jobId, dismissJob]);
 
   const state: JobStatusResponse["state"] = data?.state ?? "queued";
-  const progress = data?.progress ?? 0;
-  const percent = Math.round(progress * 100);
+  // `progress` is on a 0–100 scale (set by both real executors and mocks).
+  const percent = Math.max(0, Math.min(100, Math.round(data?.progress ?? 0)));
   const itemId =
     typeof data?.result?.itemId === "string"
       ? data.result.itemId

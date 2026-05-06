@@ -87,7 +87,7 @@ export const fakeJobs: Record<string, JobStatusResponse> = {
     userId: "dev-user-1",
     kind: "ingest",
     state: "running",
-    progress: 0.42,
+    progress: 42,
     payload: {
       kind: "ingest",
       sourceUrl: "https://www.instagram.com/reel/Cz9NEWESTONE/",
@@ -103,7 +103,7 @@ export const fakeJobs: Record<string, JobStatusResponse> = {
     userId: "dev-user-1",
     kind: "ingest",
     state: "succeeded",
-    progress: 1,
+    progress: 100,
     payload: {
       kind: "ingest",
       sourceUrl: "https://www.instagram.com/reel/Cz9PRIORONE/",
@@ -138,17 +138,18 @@ export function fakeIngestResponse(sourceUrl: string): {
   };
   fakeJobs[jobId] = job;
   // Simulate progress over time so the UI animates while watching it.
+  // Progress is on the same 0–100 scale that real executors report.
   let pct = 0;
   const tick = () => {
     const j = fakeJobs[jobId];
     if (!j || j.state === "succeeded" || j.state === "failed") return;
-    pct = Math.min(1, pct + 0.18 + Math.random() * 0.1);
-    if (pct >= 1) {
+    pct = Math.min(100, pct + 18 + Math.random() * 10);
+    if (pct >= 100) {
       const itemId = `itm_demo_${Math.random().toString(36).slice(2, 8)}`;
       fakeJobs[jobId] = {
         ...j,
         state: "succeeded",
-        progress: 1,
+        progress: 100,
         result: { itemId },
         relatedItemId: itemId,
         finishedAt: new Date().toISOString(),
