@@ -1,4 +1,7 @@
+import { audioExtractExecutor } from "@/lib/jobs/executors/audio-extract";
+import { audioSwapExecutor } from "@/lib/jobs/executors/audio-swap";
 import { ingestExecutor } from "@/lib/jobs/executors/ingest";
+import { renderExecutor } from "@/lib/jobs/executors/render";
 import type { JobExecutor, JobKind } from "@/lib/jobs/types";
 
 /**
@@ -10,6 +13,9 @@ import type { JobExecutor, JobKind } from "@/lib/jobs/types";
  */
 const registry: Partial<Record<JobKind, JobExecutor>> = {
   ingest: ingestExecutor,
+  render: renderExecutor,
+  "audio-extract": audioExtractExecutor,
+  "audio-swap": audioSwapExecutor,
 };
 
 /**

@@ -4,6 +4,9 @@
  */
 export const JobKind = {
   Ingest: "ingest",
+  Render: "render",
+  AudioExtract: "audio-extract",
+  AudioSwap: "audio-swap",
 } as const;
 
 export type JobKind = (typeof JobKind)[keyof typeof JobKind];
@@ -16,8 +19,51 @@ export interface IngestJobPayload {
   userId: string;
 }
 
+/**
+ * One clip in a render spec. Local source range `[startMs, endMs)` is
+ * sliced out of the source version's underlying file.
+ */
+export interface RenderJobClip {
+  sourceVersionId: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface RenderJobPayload {
+  kind: typeof JobKind.Render;
+  userId: string;
+  itemId: string;
+  baseVersionId: string;
+  clips: RenderJobClip[];
+  /** Optional human-readable label for the new Version. */
+  label?: string;
+}
+
+export interface AudioExtractJobPayload {
+  kind: typeof JobKind.AudioExtract;
+  userId: string;
+  itemId: string;
+  versionId: string;
+  /** Optional human-readable label for the new AudioAsset. */
+  label?: string;
+}
+
+export interface AudioSwapJobPayload {
+  kind: typeof JobKind.AudioSwap;
+  userId: string;
+  itemId: string;
+  versionId: string;
+  audioAssetId: string;
+  /** Optional human-readable label for the new Version. */
+  label?: string;
+}
+
 /** Discriminated union of every supported job payload. */
-export type JobPayload = IngestJobPayload;
+export type JobPayload =
+  | IngestJobPayload
+  | RenderJobPayload
+  | AudioExtractJobPayload
+  | AudioSwapJobPayload;
 
 /**
  * In-memory mirror of the persisted Job doc passed to executors. Read-only

@@ -5,7 +5,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { Readable } from "node:stream";
+import fs from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { env, requireEnv } from "@/lib/server/env";
 
 let _client: S3Client | null = null;
@@ -95,4 +97,35 @@ export async function deleteObject(key: string): Promise<void> {
   const client = getClient();
   const bucket = getBucket();
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/**
+ * Streams an S3 object to a local file path. Used by long-running executors
+ * that need a stable on-disk file (e.g. ffmpeg) rather than a network
+ * stream. Caller owns the destination directory.
+ *
+ * Throws if the body isn't a stream (S3 should always return one server-
+ * side; the SDK shape technically permits string/Buffer/Blob).
+ */
+export async function downloadObjectToFile(
+  key: string,
+  destPath: string,
+): Promise<void> {
+  const client = getClient();
+  const bucket = getBucket();
+  const result = await client.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+
+  const body = result.Body;
+  if (!body) {
+    throw new Error(`S3 GetObject returned an empty body for ${key}`);
+  }
+  if (!(body instanceof Readable)) {
+    throw new Error(
+      `S3 GetObject returned a non-stream body for ${key}; cannot pipe to file.`,
+    );
+  }
+
+  await pipeline(body, fs.createWriteStream(destPath));
 }

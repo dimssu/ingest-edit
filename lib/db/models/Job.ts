@@ -6,7 +6,12 @@ import type { JobKind, JobState } from "@/lib/jobs/types";
  * the type unions in `lib/jobs/types.ts`) so iteration order is stable and
  * additions to either side trigger a TS error here.
  */
-export const JOB_KINDS = ["ingest"] as const satisfies ReadonlyArray<JobKind>;
+export const JOB_KINDS = [
+  "ingest",
+  "render",
+  "audio-extract",
+  "audio-swap",
+] as const satisfies ReadonlyArray<JobKind>;
 export const JOB_STATES = [
   "queued",
   "running",
