@@ -20,6 +20,8 @@ export interface ConcatVideosOptions {
    * lossless, but still a re-encode).
    */
   fallbackEncode?: boolean;
+  /** Override the default ffmpeg-run timeout (5 minutes) for each pass. */
+  timeoutMs?: number;
 }
 
 /**
@@ -40,7 +42,7 @@ export interface ConcatVideosOptions {
  * `output` and removed on success.
  */
 export async function concatVideos(opts: ConcatVideosOptions): Promise<void> {
-  const { inputs, output } = opts;
+  const { inputs, output, timeoutMs } = opts;
   const fallbackEncode = opts.fallbackEncode ?? false;
 
   if (inputs.length === 0) {
@@ -78,7 +80,7 @@ export async function concatVideos(opts: ConcatVideosOptions): Promise<void> {
   ];
 
   try {
-    const copyResult = await runFfmpegRaw(bin, copyArgs);
+    const copyResult = await runFfmpegRaw(bin, copyArgs, { timeoutMs });
     if (copyResult.code === 0) {
       return;
     }
@@ -95,7 +97,7 @@ export async function concatVideos(opts: ConcatVideosOptions): Promise<void> {
     // resolution / framerate, then re-encode in a single pass. We use the
     // concat demuxer but allow ffmpeg to re-encode by NOT passing -c copy.
     // (`-vsync cfr` keeps frame timing sane across heterogeneous inputs.)
-    const firstMeta = await probeVideo(inputs[0]);
+    const firstMeta = await probeVideo(inputs[0], { timeoutMs });
     const videoCodec = mapCopyableCodecToEncoder(firstMeta.videoCodec);
     const encodeArgs: string[] = [
       "-hide_banner",
@@ -121,7 +123,9 @@ export async function concatVideos(opts: ConcatVideosOptions): Promise<void> {
     }
     encodeArgs.push("-pix_fmt", "yuv420p", "-vsync", "cfr", "-y", output);
 
-    await runFfmpegOrThrow(bin, encodeArgs, "concat (re-encode fallback)");
+    await runFfmpegOrThrow(bin, encodeArgs, "concat (re-encode fallback)", {
+      timeoutMs,
+    });
   } finally {
     await fs.promises
       .rm(manifestPath, { force: true })

@@ -18,6 +18,8 @@ export interface SwapAudioOptions {
    * surface as a clear error.
    */
   allowAudioReencode?: boolean;
+  /** Override the default ffmpeg-run timeout (5 minutes) for each pass. */
+  timeoutMs?: number;
 }
 
 /**
@@ -34,7 +36,7 @@ export interface SwapAudioOptions {
  *     mirrors the editor's "swap the audio for the video" intent.
  */
 export async function swapAudio(opts: SwapAudioOptions): Promise<void> {
-  const { videoInput, audioInput, output } = opts;
+  const { videoInput, audioInput, output, timeoutMs } = opts;
   const allowAudioReencode = opts.allowAudioReencode ?? false;
   const bin = env.FFMPEG_PATH ?? "ffmpeg";
 
@@ -63,7 +65,7 @@ export async function swapAudio(opts: SwapAudioOptions): Promise<void> {
     output,
   ];
 
-  const copyResult = await runFfmpegRaw(bin, copyArgs);
+  const copyResult = await runFfmpegRaw(bin, copyArgs, { timeoutMs });
   if (copyResult.code === 0) {
     return;
   }
@@ -88,5 +90,7 @@ export async function swapAudio(opts: SwapAudioOptions): Promise<void> {
     "-y",
     output,
   ];
-  await runFfmpegOrThrow(bin, encodeAudioArgs, "audio-swap (audio re-encode)");
+  await runFfmpegOrThrow(bin, encodeAudioArgs, "audio-swap (audio re-encode)", {
+    timeoutMs,
+  });
 }

@@ -58,13 +58,27 @@ function toNumberOrUndefined(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Probe should be near-instant; 30s is more than enough headroom. */
+const DEFAULT_PROBE_TIMEOUT_MS = 30_000;
+const KILL_GRACE_MS = 2_000;
+
+export interface ProbeOptions {
+  /** Override the default 30s timeout. */
+  timeoutMs?: number;
+}
+
 /**
  * Spawns ffprobe with a fixed argv (no shell). Parses the JSON output and
- * reduces it to a flat, app-shaped record. Throws on non-zero exit or on
- * unparseable output.
+ * reduces it to a flat, app-shaped record. Throws on non-zero exit, on
+ * unparseable output, or when the spawn exceeds `timeoutMs` (default
+ * 30s — probe is metadata-only and should be near-instant).
  */
-export async function probeVideo(filePath: string): Promise<ProbeResult> {
+export async function probeVideo(
+  filePath: string,
+  options: ProbeOptions = {},
+): Promise<ProbeResult> {
   const bin = env.FFPROBE_PATH ?? "ffprobe";
+  const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const args = [
     "-v",
     "error",
@@ -76,23 +90,68 @@ export async function probeVideo(filePath: string): Promise<ProbeResult> {
   ];
 
   const json = await new Promise<string>((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let killTimer: NodeJS.Timeout | null = null;
+    let settled = false;
+
+    const clearTimers = (): void => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
+    };
+
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Process may already be gone.
+      }
+      killTimer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already exited.
+        }
+      }, KILL_GRACE_MS);
+    }, timeoutMs);
+
     child.stdout?.on("data", (c: Buffer) => {
       stdout += c.toString("utf8");
     });
     child.stderr?.on("data", (c: Buffer) => {
       stderr += c.toString("utf8");
     });
-    child.on("error", (err) =>
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
       reject(
         new Error(
           `ffprobe failed to start (${bin}): ${err instanceof Error ? err.message : String(err)}`,
         ),
-      ),
-    );
+      );
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      if (timedOut) {
+        reject(
+          new Error(
+            `ffprobe exceeded ${timeoutMs}ms timeout (file: ${filePath}). Killed. stderr: ${stderr.trim()}`,
+          ),
+        );
+        return;
+      }
       if (code !== 0) {
         reject(
           new Error(

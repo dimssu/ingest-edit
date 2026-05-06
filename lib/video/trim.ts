@@ -8,6 +8,8 @@ export interface TrimClipOptions {
   startMs: number;
   /** Exclusive end in milliseconds. Must be greater than `startMs`. */
   endMs: number;
+  /** Override the default ffmpeg-run timeout (5 minutes). */
+  timeoutMs?: number;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface TrimClipOptions {
  *     timestamps so downstream concat doesn't choke on negative PTS.
  */
 export async function trimClip(opts: TrimClipOptions): Promise<void> {
-  const { input, output, startMs, endMs } = opts;
+  const { input, output, startMs, endMs, timeoutMs } = opts;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
     throw new Error(
       `trimClip: non-finite range (startMs=${startMs}, endMs=${endMs}).`,
@@ -63,5 +65,5 @@ export async function trimClip(opts: TrimClipOptions): Promise<void> {
     output,
   ];
 
-  await runFfmpegOrThrow(bin, args, "trim");
+  await runFfmpegOrThrow(bin, args, "trim", { timeoutMs });
 }

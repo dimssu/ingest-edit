@@ -31,6 +31,8 @@ export interface ExtractAudioOptions {
    * surface as a clear error rather than a silent quality hit.
    */
   allowReencode?: boolean;
+  /** Override the default ffmpeg-run timeout (5 minutes) for each pass. */
+  timeoutMs?: number;
 }
 
 export interface ExtractAudioResult {
@@ -53,7 +55,7 @@ export interface ExtractAudioResult {
 export async function extractAudio(
   opts: ExtractAudioOptions,
 ): Promise<ExtractAudioResult> {
-  const { input, outputBase, sourceCodecHint } = opts;
+  const { input, outputBase, sourceCodecHint, timeoutMs } = opts;
   const allowReencode = opts.allowReencode ?? false;
   const bin = env.FFMPEG_PATH ?? "ffmpeg";
 
@@ -74,7 +76,7 @@ export async function extractAudio(
       "-y",
       outputPath,
     ];
-    const copyResult = await runFfmpegRaw(bin, copyArgs);
+    const copyResult = await runFfmpegRaw(bin, copyArgs, { timeoutMs });
     if (copyResult.code === 0) {
       return { outputPath, format: copyTarget, reencoded: false };
     }
@@ -108,7 +110,9 @@ export async function extractAudio(
     "-y",
     mp3Path,
   ];
-  await runFfmpegOrThrow(bin, encodeArgs, "audio-extract (mp3 fallback)");
+  await runFfmpegOrThrow(bin, encodeArgs, "audio-extract (mp3 fallback)", {
+    timeoutMs,
+  });
   return { outputPath: mp3Path, format: "mp3", reencoded: true };
 }
 
