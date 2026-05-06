@@ -131,3 +131,47 @@ export const ItemDetailResponse = z.object({
   audioAssets: z.array(AudioAssetSummary),
 });
 export type ItemDetailResponse = z.infer<typeof ItemDetailResponse>;
+
+// ---- /api/render -----------------------------------------------------------
+
+export const RenderRequestClip = z.object({
+  sourceVersionId: z.string().min(1),
+  startMs: z.number().finite().nonnegative(),
+  endMs: z.number().finite().positive(),
+});
+export type RenderRequestClip = z.infer<typeof RenderRequestClip>;
+
+export const RenderRequest = z.object({
+  itemId: z.string().min(1),
+  baseVersionId: z.string().min(1),
+  label: z.string().min(1).max(200).optional(),
+  clips: z.array(RenderRequestClip).min(1, "At least one clip is required."),
+});
+export type RenderRequest = z.infer<typeof RenderRequest>;
+
+// ---- /api/audio/extract ----------------------------------------------------
+
+export const AudioExtractRequest = z.object({
+  itemId: z.string().min(1),
+  versionId: z.string().min(1),
+  label: z.string().min(1).max(200).optional(),
+});
+export type AudioExtractRequest = z.infer<typeof AudioExtractRequest>;
+
+// ---- /api/audio/swap -------------------------------------------------------
+
+export const AudioSwapRequest = z.object({
+  itemId: z.string().min(1),
+  versionId: z.string().min(1),
+  audioAssetId: z.string().min(1),
+  label: z.string().min(1).max(200).optional(),
+});
+export type AudioSwapRequest = z.infer<typeof AudioSwapRequest>;
+
+// ---- shared "job enqueued" response ---------------------------------------
+
+export const EnqueueJobResponse = z.object({
+  jobId: z.string(),
+  state: z.literal("queued"),
+});
+export type EnqueueJobResponse = z.infer<typeof EnqueueJobResponse>;
