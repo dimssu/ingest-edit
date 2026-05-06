@@ -136,7 +136,7 @@ export function ToolsPanel({ versions, focusedVersionId }: ToolsPanelProps) {
               className="justify-center"
             >
               <Square aria-hidden />
-              Set In
+              Set in
             </Button>
             <Button
               type="button"
@@ -146,7 +146,7 @@ export function ToolsPanel({ versions, focusedVersionId }: ToolsPanelProps) {
               className="justify-center"
             >
               <SquareDashed aria-hidden />
-              Set Out
+              Set out
             </Button>
           </div>
           <Button

@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { useItemDetail } from "@/app/items/[itemId]/hooks/use-item-detail";
+import { buttonVariants } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
 
 import { ClipList } from "./clip-list";
 import { EditorError } from "./editor-error";
@@ -119,33 +122,57 @@ export function EditorShell({ itemId, versionId }: EditorShellProps) {
           onRenderEnqueued={(jobId) => setPendingRenderJobId(jobId)}
         />
 
-        <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-4 px-6 py-5 md:px-8">
-          {/* Top: player + tools side by side on desktop. */}
-          <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <Player
-              videoUrlByVersionId={videoUrlByVersionId}
-              posterByVersionId={posterByVersionId}
-              aspectRatio={aspectRatio}
-            />
-            <ToolsPanel
-              versions={data.versions}
-              focusedVersionId={focused.versionId}
-            />
-          </section>
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-6 py-5 md:px-8">
+          {/* Below-1024px gate: the timeline editor needs a wide canvas to
+              be usable; on small screens we render the gate only. */}
+          <div
+            className="lg:hidden flex flex-1 items-center justify-center py-16"
+            role="status"
+          >
+            <div className="max-w-sm space-y-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-6 text-center">
+              <h2 className="text-base font-semibold text-foreground">
+                Open on a wider screen
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                The editor needs at least 1024px to fit the player, timeline,
+                and tools side-by-side. Switch to a desktop browser to keep
+                editing this version.
+              </p>
+              <Link
+                href={`/items/${itemId}`}
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" }),
+                  "mt-2",
+                )}
+              >
+                Back to canvas
+              </Link>
+            </div>
+          </div>
 
-          {/* Middle: timeline. */}
-          <Timeline labelByVersionId={labelByVersionId} />
+          {/* Desktop body: only renders at lg+. */}
+          <div className="hidden lg:block lg:space-y-4">
+            {/* Top: player + tools side by side on desktop. */}
+            <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <Player
+                videoUrlByVersionId={videoUrlByVersionId}
+                posterByVersionId={posterByVersionId}
+                aspectRatio={aspectRatio}
+              />
+              <ToolsPanel
+                versions={data.versions}
+                focusedVersionId={focused.versionId}
+              />
+            </section>
 
-          {/* Bottom: clip list. (Stays under the timeline; deliberate
-              vertical flow rather than a narrow side rail so reorder
-              affordances don't crowd the edit verbs.) */}
-          <ClipList versions={data.versions} />
+            {/* Middle: timeline. */}
+            <Timeline labelByVersionId={labelByVersionId} />
 
-          {/* Below-1024px guidance per the frontend brief. */}
-          <p className="rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-2 text-center text-[11px] text-muted-foreground lg:hidden">
-            The editor is desktop-first. For full layout, open on a screen
-            wider than 1024px.
-          </p>
+            {/* Bottom: clip list. (Stays under the timeline; deliberate
+                vertical flow rather than a narrow side rail so reorder
+                affordances don't crowd the edit verbs.) */}
+            <ClipList versions={data.versions} />
+          </div>
         </main>
 
         {pendingRenderJobId ? (
