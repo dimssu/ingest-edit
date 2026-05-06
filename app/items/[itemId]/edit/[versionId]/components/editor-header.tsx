@@ -22,26 +22,36 @@ interface EditorHeaderProps {
   itemId: string;
   versionLabel: string;
   versionId: string;
+  /** True while a render is in flight — disables the render button so a
+   *  second submit can't race the first. */
+  rendering: boolean;
+  /** Called when /api/render returns 202 with a `jobId`. The shell mounts
+   *  the overlay and subscribes to the job from there. */
+  onRenderEnqueued: (jobId: string) => void;
 }
 
 /**
  * Top bar: back-to-canvas affordance, focused-version breadcrumb, and the
- * Render call-to-action. Render is wired end-to-end against the 501 stub
- * so reviewers can verify the request shape — see lib/client/api.ts.
+ * Render call-to-action. The button hands the spec to /api/render and
+ * lifts the resulting `jobId` to the editor shell, which owns the
+ * rendering overlay so the overlay survives header re-renders.
  */
 export function EditorHeader({
   itemId,
   versionLabel,
   versionId,
+  rendering,
+  onRenderEnqueued,
 }: EditorHeaderProps) {
   const { state } = useEditSpec();
   const [submitting, setSubmitting] = useState(false);
 
   const totalMs = totalDurationMs(state.spec);
   const validation = validateSpec(state.spec);
+  const buttonBusy = submitting || rendering;
 
   const handleRender = async () => {
-    if (submitting) return;
+    if (buttonBusy) return;
     if (!validation.ok) {
       toast.error("Spec is invalid", {
         description: validation.reason,
@@ -60,25 +70,31 @@ export function EditorHeader({
     setSubmitting(true);
     try {
       const res = await postRender(req);
-      toast.success("Spec accepted", {
-        description: `Render coming in next release · job ${res.jobId}`,
-      });
+      onRenderEnqueued(res.jobId);
     } catch (err: unknown) {
       const isApi = err instanceof ApiError;
-      // 501 from the stub is the EXPECTED path — surface it calmly.
-      if (isApi && err.code === "RENDER_NOT_IMPLEMENTED") {
-        toast.info("Spec accepted", {
-          description: "Render is wired but no executor yet — coming next release.",
-        });
-      } else {
-        const msg =
-          err instanceof Error ? err.message : "Unexpected error.";
-        toast.error("Couldn’t submit render", { description: msg });
-      }
+      const description = isApi
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Unexpected error.";
+      toast.error("Couldn’t submit render", { description });
     } finally {
       setSubmitting(false);
     }
   };
+
+  const buttonLabel = submitting
+    ? "Submitting…"
+    : rendering
+      ? "Rendering…"
+      : "Render";
+
+  const tooltipContent = !validation.ok
+    ? validation.reason
+    : rendering
+      ? "A render is already in progress."
+      : "Submit this edit for rendering.";
 
   return (
     <TooltipProvider>
@@ -123,17 +139,15 @@ export function EditorHeader({
                     variant="default"
                     size="lg"
                     onClick={() => void handleRender()}
-                    disabled={submitting || !validation.ok}
+                    disabled={buttonBusy || !validation.ok}
                     aria-label="Render edit"
                   />
                 }
               >
                 <Sparkles aria-hidden />
-                {submitting ? "Submitting…" : "Render"}
+                {buttonLabel}
               </TooltipTrigger>
-              <TooltipContent>
-                Render is wired but no executor yet — Phase 7.
-              </TooltipContent>
+              <TooltipContent>{tooltipContent}</TooltipContent>
             </Tooltip>
           </div>
         </div>

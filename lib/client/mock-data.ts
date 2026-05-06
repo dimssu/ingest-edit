@@ -11,6 +11,9 @@
 
 import type {
   AudioAssetSummary,
+  AudioExtractRequest,
+  AudioSwapRequest,
+  EnqueueJobResponse,
   IngestResponse,
   ItemDetail,
   ItemDetailResponse,
@@ -19,6 +22,7 @@ import type {
   JobStatusResponse,
   VersionSummary,
 } from "@/types/api";
+import type { RenderRequest } from "@/lib/client/api";
 
 import { ApiError } from "@/lib/client/api";
 
@@ -530,6 +534,328 @@ export function fakeItemDetailFor(itemId: string): ItemDetailResponse {
     versions: seed.versions.map((v) => ({ ...v })),
     audioAssets: seed.audioAssets.map((a) => ({ ...a })),
   };
+}
+
+// ---- /api/render fake response --------------------------------------------
+
+/**
+ * Mutates the seeded item-detail in place so the canvas (which reads from
+ * `fakeItemDetailFor`) sees newly produced versions/assets after a fake
+ * render or audio job lands. SWR revalidation pulls the next snapshot.
+ */
+function pushVersionToSeed(itemId: string, version: VersionSummary): boolean {
+  const seed = fakeItemDetailSeeds[itemId];
+  if (!seed) return false;
+  seed.versions = [...seed.versions, version];
+  seed.item = { ...seed.item, updatedAt: new Date().toISOString() };
+  return true;
+}
+
+function pushAudioAssetToSeed(
+  itemId: string,
+  asset: AudioAssetSummary,
+): boolean {
+  const seed = fakeItemDetailSeeds[itemId];
+  if (!seed) return false;
+  seed.audioAssets = [...seed.audioAssets, asset];
+  seed.item = { ...seed.item, updatedAt: new Date().toISOString() };
+  return true;
+}
+
+interface SimulateJobOpts {
+  jobId: string;
+  kind: string;
+  userId: string;
+  payload: Record<string, unknown>;
+  relatedItemId?: string;
+  relatedVersionId?: string;
+  /** Called once when the simulated job reaches 100% — produces the result
+   *  and any side effects on the seeded item detail. */
+  onComplete: () => Record<string, unknown>;
+}
+
+/**
+ * Drives a fake job from queued → running → succeeded with stepped
+ * progress (~0 / 30 / 60 / 90 / 100). All three render-style executors
+ * share the same shape so the UI exercises identical code paths.
+ */
+function simulateJob(opts: SimulateJobOpts): JobStatusResponse {
+  const created = new Date().toISOString();
+  const initial: JobStatusResponse = {
+    jobId: opts.jobId,
+    userId: opts.userId,
+    kind: opts.kind,
+    state: "queued",
+    progress: 0,
+    payload: opts.payload,
+    attempts: 0,
+    relatedItemId: opts.relatedItemId,
+    relatedVersionId: opts.relatedVersionId,
+    createdAt: created,
+    updatedAt: created,
+  };
+  fakeJobs[opts.jobId] = initial;
+
+  // Discrete progress steps so the UI reads as "real work" rather than
+  // smooth interpolation. ffmpeg in real life surfaces sparse callbacks.
+  const steps = [0.3, 0.6, 0.9];
+  let i = 0;
+  const tick = () => {
+    const j = fakeJobs[opts.jobId];
+    if (!j) return;
+    if (j.state === "succeeded" || j.state === "failed") return;
+    if (i < steps.length) {
+      fakeJobs[opts.jobId] = {
+        ...j,
+        state: "running",
+        progress: steps[i],
+        startedAt: j.startedAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      i++;
+      setTimeout(tick, 900);
+      return;
+    }
+    // Final step — run side effects then mark succeeded.
+    let result: Record<string, unknown>;
+    try {
+      result = opts.onComplete();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Job failed.";
+      fakeJobs[opts.jobId] = {
+        ...j,
+        state: "failed",
+        progress: j.progress,
+        error: { message },
+        finishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      return;
+    }
+    fakeJobs[opts.jobId] = {
+      ...j,
+      state: "succeeded",
+      progress: 1,
+      result,
+      finishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  };
+  // Kick off after a brief delay so callers see the queued state first.
+  setTimeout(tick, 500);
+
+  return initial;
+}
+
+/**
+ * Fakes /api/render: synthesizes a job that, on completion, appends a new
+ * "render" Version to the targeted item with an aggregate duration over
+ * the request's clips.
+ */
+export function fakeRenderResponse(req: RenderRequest): {
+  response: EnqueueJobResponse;
+  job: JobStatusResponse;
+} {
+  const seed = fakeItemDetailSeeds[req.itemId];
+  if (!seed) {
+    throw new ApiError(
+      "ITEM_NOT_FOUND",
+      `No item with id ${req.itemId}.`,
+      404,
+    );
+  }
+
+  const jobId = `job_demo_render_${Math.random().toString(36).slice(2, 8)}`;
+  const versionId = `ver_render_${Math.random().toString(36).slice(2, 8)}`;
+  const totalMs = req.clips.reduce(
+    (acc, c) => acc + Math.max(0, c.endMs - c.startMs),
+    0,
+  );
+
+  const job = simulateJob({
+    jobId,
+    kind: "render",
+    userId: "dev-user-1",
+    payload: {
+      kind: "render",
+      userId: "dev-user-1",
+      itemId: req.itemId,
+      baseVersionId: req.baseVersionId,
+      clips: req.clips,
+      label: req.label,
+    },
+    relatedItemId: req.itemId,
+    relatedVersionId: req.baseVersionId,
+    onComplete: () => {
+      const newVersion: VersionSummary = {
+        versionId,
+        itemId: req.itemId,
+        parentVersionId: req.baseVersionId,
+        label: req.label ?? `Render · ${req.clips.length} clip${req.clips.length === 1 ? "" : "s"}`,
+        videoUrl: undefined,
+        durationMs: totalMs,
+        derivedFrom: {
+          op: "render",
+          params: { clipCount: req.clips.length },
+        },
+        width: seed.item.width,
+        height: seed.item.height,
+        videoCodec: seed.item.videoCodec,
+        audioCodec: seed.item.audioCodec,
+        fileSizeBytes: undefined,
+        createdAt: new Date().toISOString(),
+      };
+      pushVersionToSeed(req.itemId, newVersion);
+      return { itemId: req.itemId, versionId };
+    },
+  });
+
+  return { response: { jobId, state: "queued" }, job };
+}
+
+/**
+ * Fakes /api/audio/extract: synthesizes a job that, on completion, appends
+ * a new AudioAsset whose `sourceVersionId` is the input version.
+ */
+export function fakeAudioExtractResponse(req: AudioExtractRequest): {
+  response: EnqueueJobResponse;
+  job: JobStatusResponse;
+} {
+  const seed = fakeItemDetailSeeds[req.itemId];
+  if (!seed) {
+    throw new ApiError(
+      "ITEM_NOT_FOUND",
+      `No item with id ${req.itemId}.`,
+      404,
+    );
+  }
+  const sourceVersion = seed.versions.find(
+    (v) => v.versionId === req.versionId,
+  );
+  if (!sourceVersion) {
+    throw new ApiError(
+      "VERSION_NOT_FOUND",
+      `Version ${req.versionId} not found on item ${req.itemId}.`,
+      404,
+    );
+  }
+
+  const jobId = `job_demo_extract_${Math.random().toString(36).slice(2, 8)}`;
+  const assetId = `aud_extract_${Math.random().toString(36).slice(2, 8)}`;
+
+  const job = simulateJob({
+    jobId,
+    kind: "audio-extract",
+    userId: "dev-user-1",
+    payload: {
+      kind: "audio-extract",
+      userId: "dev-user-1",
+      itemId: req.itemId,
+      versionId: req.versionId,
+      label: req.label,
+    },
+    relatedItemId: req.itemId,
+    relatedVersionId: req.versionId,
+    onComplete: () => {
+      const newAsset: AudioAssetSummary = {
+        assetId,
+        itemId: req.itemId,
+        sourceVersionId: req.versionId,
+        audioUrl: undefined,
+        format: "aac",
+        durationMs: sourceVersion.durationMs,
+        sampleRate: 48_000,
+        channels: 2,
+        fileSizeBytes: Math.floor(sourceVersion.durationMs * 16),
+        label: req.label ?? `Extracted · ${sourceVersion.label}`,
+        createdAt: new Date().toISOString(),
+      };
+      pushAudioAssetToSeed(req.itemId, newAsset);
+      return { itemId: req.itemId, assetId };
+    },
+  });
+
+  return { response: { jobId, state: "queued" }, job };
+}
+
+/**
+ * Fakes /api/audio/swap: synthesizes a job that, on completion, appends a
+ * new Version derived from the input version with the chosen audio asset.
+ */
+export function fakeAudioSwapResponse(req: AudioSwapRequest): {
+  response: EnqueueJobResponse;
+  job: JobStatusResponse;
+} {
+  const seed = fakeItemDetailSeeds[req.itemId];
+  if (!seed) {
+    throw new ApiError(
+      "ITEM_NOT_FOUND",
+      `No item with id ${req.itemId}.`,
+      404,
+    );
+  }
+  const sourceVersion = seed.versions.find(
+    (v) => v.versionId === req.versionId,
+  );
+  if (!sourceVersion) {
+    throw new ApiError(
+      "VERSION_NOT_FOUND",
+      `Version ${req.versionId} not found on item ${req.itemId}.`,
+      404,
+    );
+  }
+  const asset = seed.audioAssets.find((a) => a.assetId === req.audioAssetId);
+  if (!asset) {
+    throw new ApiError(
+      "ASSET_NOT_FOUND",
+      `Audio asset ${req.audioAssetId} not found.`,
+      404,
+    );
+  }
+
+  const jobId = `job_demo_swap_${Math.random().toString(36).slice(2, 8)}`;
+  const versionId = `ver_swap_${Math.random().toString(36).slice(2, 8)}`;
+
+  const job = simulateJob({
+    jobId,
+    kind: "audio-swap",
+    userId: "dev-user-1",
+    payload: {
+      kind: "audio-swap",
+      userId: "dev-user-1",
+      itemId: req.itemId,
+      versionId: req.versionId,
+      audioAssetId: req.audioAssetId,
+      label: req.label,
+    },
+    relatedItemId: req.itemId,
+    relatedVersionId: req.versionId,
+    onComplete: () => {
+      const audioLabel = asset.label ?? "audio";
+      const newVersion: VersionSummary = {
+        versionId,
+        itemId: req.itemId,
+        parentVersionId: req.versionId,
+        label: req.label ?? `${sourceVersion.label} · ${audioLabel}`,
+        videoUrl: undefined,
+        durationMs: sourceVersion.durationMs,
+        derivedFrom: {
+          op: "audio-swap",
+          params: { audioAssetId: req.audioAssetId },
+        },
+        width: sourceVersion.width,
+        height: sourceVersion.height,
+        videoCodec: sourceVersion.videoCodec,
+        audioCodec: asset.format,
+        fileSizeBytes: undefined,
+        createdAt: new Date().toISOString(),
+      };
+      pushVersionToSeed(req.itemId, newVersion);
+      return { itemId: req.itemId, versionId };
+    },
+  });
+
+  return { response: { jobId, state: "queued" }, job };
 }
 
 // Note: the runtime flag check lives in `lib/client/fake-data-flag.ts` so

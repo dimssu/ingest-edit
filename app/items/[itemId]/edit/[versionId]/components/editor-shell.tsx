@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useItemDetail } from "@/app/items/[itemId]/hooks/use-item-detail";
 import { Toaster } from "@/components/ui/sonner";
@@ -11,6 +11,7 @@ import { EditorHeader } from "./editor-header";
 import { EditorLoading } from "./editor-loading";
 import { EditSpecProvider } from "./edit-spec-context";
 import { Player } from "./player";
+import { RenderingOverlay } from "./rendering-overlay";
 import { Timeline } from "./timeline";
 import { ToolsPanel } from "./tools-panel";
 
@@ -23,9 +24,15 @@ interface EditorShellProps {
  * The editor's runtime composition. Resolves the focused version from the
  * fetched item-detail, then mounts the EditSpecProvider seeded with that
  * version. Everything below the provider sees a single shared spec state.
+ *
+ * Owns the in-flight render `jobId` so the rendering overlay survives any
+ * re-renders inside the header / timeline subtree.
  */
 export function EditorShell({ itemId, versionId }: EditorShellProps) {
   const { data, error, isLoading, mutate } = useItemDetail(itemId);
+  const [pendingRenderJobId, setPendingRenderJobId] = useState<string | null>(
+    null,
+  );
 
   const focused = useMemo(() => {
     if (!data) return undefined;
@@ -108,6 +115,8 @@ export function EditorShell({ itemId, versionId }: EditorShellProps) {
           itemId={itemId}
           versionLabel={focused.label}
           versionId={focused.versionId}
+          rendering={pendingRenderJobId !== null}
+          onRenderEnqueued={(jobId) => setPendingRenderJobId(jobId)}
         />
 
         <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-4 px-6 py-5 md:px-8">
@@ -138,6 +147,19 @@ export function EditorShell({ itemId, versionId }: EditorShellProps) {
             wider than 1024px.
           </p>
         </main>
+
+        {pendingRenderJobId ? (
+          <RenderingOverlay
+            itemId={itemId}
+            jobId={pendingRenderJobId}
+            onFailed={() => {
+              // Failure toast is fired by the overlay; restore the editor
+              // so the user can retry without losing their in-memory spec.
+              setPendingRenderJobId(null);
+            }}
+            onCancel={() => setPendingRenderJobId(null)}
+          />
+        ) : null}
 
         {/* Sonner is mounted here so the editor's own toasts surface
             without depending on the dashboard's mount. */}

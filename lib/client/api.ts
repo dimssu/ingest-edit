@@ -11,6 +11,9 @@
  */
 
 import type {
+  AudioExtractRequest,
+  AudioSwapRequest,
+  EnqueueJobResponse,
   IngestRequestBody,
   IngestResponse,
   ItemDetailResponse,
@@ -153,11 +156,18 @@ export async function postIngest(
   return parseOrThrow<IngestResponse>(res);
 }
 
-// ---- /api/render (stubbed; real executor lands in Phase 7) ---------------
+// ---- /api/render -----------------------------------------------------------
 
+/**
+ * Wire shape for the render request. Mirrors the zod-derived
+ * `RenderRequest` in `types/api.ts`. We re-declare the interface here so
+ * `lib/client/api.ts` stays usable without pulling zod into the client
+ * bundle for any callers that only need the structural type.
+ */
 export interface RenderRequest {
   itemId: string;
   baseVersionId: string;
+  label?: string;
   clips: Array<{
     sourceVersionId: string;
     startMs: number;
@@ -165,25 +175,20 @@ export interface RenderRequest {
   }>;
 }
 
-export interface RenderResponse {
-  jobId: string;
-  state: "queued";
-}
+export type RenderResponse = EnqueueJobResponse;
 
 /**
- * Submits an edit spec for rendering. The endpoint currently returns 501
- * NOT_IMPLEMENTED — the editor wiring exists end-to-end so a reviewer can
- * inspect the request payload and confirm the spec serializes correctly.
+ * Submits an edit spec for rendering. The endpoint persists a queued
+ * render job and returns the `jobId` (202). Clients poll
+ * `/api/jobs/[jobId]` for state and read `result.versionId` on success.
  *
- * In fake-data mode we synthesize a queued response so the UI animates
- * just like it will once the real executor is in.
+ * In fake-data mode we synthesize a job that animates 0→100 and adds a
+ * fresh Version to the seeded item-detail when it lands.
  */
 export async function postRender(req: RenderRequest): Promise<RenderResponse> {
   if (fakeDataEnabled()) {
-    return {
-      jobId: `job_demo_render_${Math.random().toString(36).slice(2, 8)}`,
-      state: "queued",
-    };
+    const { fakeRenderResponse } = await loadMocks();
+    return fakeRenderResponse(req).response;
   }
   const res = await fetch("/api/render", {
     method: "POST",
@@ -194,4 +199,58 @@ export async function postRender(req: RenderRequest): Promise<RenderResponse> {
     body: JSON.stringify(req),
   });
   return parseOrThrow<RenderResponse>(res);
+}
+
+// ---- /api/audio/extract ----------------------------------------------------
+
+export type AudioExtractResponse = EnqueueJobResponse;
+
+/**
+ * Enqueues an audio-extract job for the given version. Returns `{ jobId }`
+ * (202). The executor produces a new AudioAsset whose `sourceVersionId` is
+ * the input version. Poll `/api/jobs/[jobId]` for state.
+ */
+export async function postAudioExtract(
+  req: AudioExtractRequest,
+): Promise<AudioExtractResponse> {
+  if (fakeDataEnabled()) {
+    const { fakeAudioExtractResponse } = await loadMocks();
+    return fakeAudioExtractResponse(req).response;
+  }
+  const res = await fetch("/api/audio/extract", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+  return parseOrThrow<AudioExtractResponse>(res);
+}
+
+// ---- /api/audio/swap -------------------------------------------------------
+
+export type AudioSwapResponse = EnqueueJobResponse;
+
+/**
+ * Enqueues an audio-swap job. The executor produces a new Version whose
+ * audio track is replaced by the chosen AudioAsset. Poll
+ * `/api/jobs/[jobId]` for state and read `result.versionId` on success.
+ */
+export async function postAudioSwap(
+  req: AudioSwapRequest,
+): Promise<AudioSwapResponse> {
+  if (fakeDataEnabled()) {
+    const { fakeAudioSwapResponse } = await loadMocks();
+    return fakeAudioSwapResponse(req).response;
+  }
+  const res = await fetch("/api/audio/swap", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+  return parseOrThrow<AudioSwapResponse>(res);
 }
